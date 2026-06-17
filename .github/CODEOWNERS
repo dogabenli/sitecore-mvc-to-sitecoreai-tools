@@ -1,0 +1,8 @@
+# CODEOWNERS
+# Each line maps a path pattern to the GitHub user(s) or team(s) who own it.
+# Owners are automatically requested as reviewers on any PR that touches those paths.
+# Replace @your-username with your actual GitHub username.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @dogabenli
