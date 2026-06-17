@@ -57,9 +57,23 @@ Use this diagnostic utility before or after migration to count pages per templat
 
 ---
 
+## Documentation
+
+For a detailed step-by-step migration guide with diagrams and video walkthrough, see [Migration Overview](docs/migration-overview.md).
+
+This includes:
+- Phase-by-phase breakdown of the migration process
+- Sitecore configuration examples
+- Visual diagrams of MVC vs. Headless architectures
+- Video demo of the migration workflow
+
+---
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a pull request.
+
+For guidance on using AI tools effectively while maintaining code quality, see [AI Guidelines](.github/AI-GUIDELINES.md).
 
 ---
 
