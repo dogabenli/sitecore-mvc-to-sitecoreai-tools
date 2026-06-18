@@ -1,4 +1,4 @@
-# Sitecore MVC → Headless SXA Migration Tools
+# Sitecore MVC → SitecoreAI Migration Tools
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
