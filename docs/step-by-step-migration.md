@@ -1,4 +1,4 @@
-# MVC to SitecoreAI Migration via SPE scripts and XM to XM Cloud Tool Guide
+# MVC to SitecoreAI Migration via SPE scripts and XM to XM Cloud Tool
 
 This document outlines the steps to migrate a legacy MVC site to SitecoreAI using Sitecore PowerShell Scripts and the XM to XM Cloud Tool.
 
