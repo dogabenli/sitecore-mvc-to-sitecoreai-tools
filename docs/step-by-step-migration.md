@@ -108,7 +108,9 @@ Use this package as a template only:
 
 ![Build Components with AI Agents](images/17-0cf51e5f-8362-49ee-9a34-b8a2460fe7a7.png)
 
-## Video Demo
+## Habitat Demo Video
+
+The [Sitecore Habitat](https://github.com/Sitecore/Habitat/) reference site — a Sitecore Modular Architecture example running on version 9.2 — was migrated to SitecoreAI using this approach. Habitat is no longer maintained, making it a useful real-world baseline for demonstrating a low-effort, as-is migration. The video below shows the end result.
 
 <video controls width="960">
 	<source src="videos/Recording%202026-06-03%20095213.mp4" type="video/mp4">
