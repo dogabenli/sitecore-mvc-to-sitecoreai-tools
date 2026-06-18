@@ -6,6 +6,28 @@ A collection of **Sitecore PowerShell Extensions (SPE)** scripts that automate t
 
 ---
 
+## Disclaimer
+
+This project is **not an official Sitecore tool** and is **not supported by Sitecore**.
+
+Use of these scripts is at your own risk. Anyone using this tool is responsible for validating behavior in their own environments and for any impact caused by running the scripts.
+
+This repository is open for contributions, and all scripts are publicly available.
+
+---
+
+## Purpose and Scope
+
+The migration currently runs on local environments and is executed using two Sitecore PowerShell Extension scripts.
+
+The primary objective of this approach is to help customers transition to SitecoreAI with the lowest possible effort. To support this, the scripts focus on an *as-is* (like-for-like) migration model, minimizing redesign and redevelopment rather than requiring a full rebuild.
+
+This approach is **not intended to overlap with or replace Pathway**. It is specifically designed for scenarios where customers prefer a straightforward, low-effort migration of existing solutions while preserving current structures and behaviors as much as possible.
+
+Anyone planning to use this tool should follow the step-by-step guide in [docs/step-by-step-migration.md](docs/step-by-step-migration.md).
+
+---
+
 ## Contents
 
 | Script | Purpose |
@@ -20,32 +42,34 @@ The installable Sitecore package (`.zip`) is available on the [Releases](../../r
 
 ## Prerequisites
 
-- **Sitecore 10.x** (tested; may work on 9.x)
-- **Sitecore PowerShell Extensions (SPE) 6.4+** installed and enabled
+- **Sitecore 10.4** 
+    - If you plan to migrate from an older Sitecore version;
+        - Setup a vanilla Sitecore instance
+        - Run database upgrade scripts against your existing master database
+        - Attach your master database to vanilla Sitecore instance
+- Latest "Sitecore Headless Services" package (currently **Sitecore Headless Services Server XP 22.0.11** for XP) package installed
+- Latest Sitecore PowerShell Extensions (SPE) (Currently **Sitecore.PowerShell.Extensions-7.0-IAR**) package installed
+- Latest Sitecore Experience Accelerator (currently **Sitecore Experience Accelerator 10.4.0 rev. 08675**) package installed
+- Latest MVC to Headless SXA Migration (currently **MVC to Headless SXA Migration-0.1.1-0.1.1**) package installed
 - The **Migration Configuration** item provisioned at `/sitecore/system/Settings/Migration/Migration Configuration` (included in the package)
+- Layout mappings are created manually under `/sitecore/system/Settings/Migration/Mappings/Layout Mappings`
 - A target **Headless SXA** site structure already scaffolded
 
 ---
 
-## Usage
 
-All scripts are executed from the **SPE ISE** or **SPE Remoting** console inside your Sitecore instance.
-
-### 1. Install the package
+### 1. Install packages in prerequisites
 
 Download `MVC to Headless SXA Migration-0.1.1.zip` from [Releases](../../releases) and install it through the Sitecore Installation Wizard. This provisions the Migration Configuration item and all required templates.
 
 ### 2. Configure the Migration Configuration item
 
-Open `/sitecore/system/Settings/Migration/Migration Configuration` in the Content Editor and fill in:
+Open `/sitecore/system/Settings/Migration/Migration Configuration` in the Content Editor and fill in.
 
-- **MVC Start Item** — root of the MVC content tree
-- **MVC Page Type Templates** — pipe-separated template IDs/paths for MVC page templates
-- **Local Data Source Template** — template ID used for local datasource folders
 
 ### 3. Run `Convert-mvc-to-headless-sxa.ps1`
 
-Open the script in SPE ISE and execute it. It runs ten sequential phases, pausing for confirmation between each phase. Each phase can be reverted individually.
+Open the script in SPE ISE and execute it. It runs ten sequential phases, pausing for confirmation between each phase. 
 
 ### 4. Run `Migrate-items.ps1`
 
@@ -59,7 +83,9 @@ Use this diagnostic utility before or after migration to count pages per templat
 
 ## Documentation
 
-For a detailed step-by-step migration guide with diagrams and video walkthrough, see [Migration Overview](docs/migration-overview.md).
+For a detailed step-by-step migration guide with diagrams and video walkthrough, see [Migration Overview](docs/step-by-step-migration.md).
+
+If you are using this tool, follow [docs/step-by-step-migration.md](docs/step-by-step-migration.md) as the primary runbook.
 
 This includes:
 - Phase-by-phase breakdown of the migration process
