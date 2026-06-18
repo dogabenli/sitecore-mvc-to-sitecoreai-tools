@@ -93,6 +93,8 @@ This includes:
 - Visual diagrams of MVC vs. Headless architectures
 - Video demo of the migration workflow
 
+Optional: an example Copilot custom agent package for Phase 7 is available at [examples/copilot-custom-agent](examples/copilot-custom-agent/README.md).
+
 ---
 
 ## Contributing

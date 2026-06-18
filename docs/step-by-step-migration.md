@@ -96,6 +96,16 @@ After migration is completed and the GraphQL response is as expected, then the s
 
 You can build components using AI agents. The GraphQL layout service supplies page data. You have MVC references. Migration scripts generate a JSON reference listing all components, their data source fields, and rendering parameters.
 
+### Optional: Example Custom Agent Package
+
+An opt-in example Copilot customization package is available in [examples/copilot-custom-agent](../examples/copilot-custom-agent/README.md).
+
+Use this package as a template only:
+
+1. It is not active by default in this repository.
+2. Update all path variables and conventions for your target project.
+3. Activate it intentionally in a target repository by placing files under `.github/agents`, `.github/instructions`, and `.github/prompts`.
+
 ![Build Components with AI Agents](images/17-0cf51e5f-8362-49ee-9a34-b8a2460fe7a7.png)
 
 ## Video Demo
