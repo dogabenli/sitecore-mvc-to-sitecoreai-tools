@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A collection of **Sitecore PowerShell Extensions (SPE)** scripts that automate the migration of a Sitecore MVC site to Headless SXA (JSS / Next.js).
+A collection of **Sitecore PowerShell Extensions (SPE)** scripts that automate the migration of a Sitecore MVC site to Headless SXA.
 
 ---
 
