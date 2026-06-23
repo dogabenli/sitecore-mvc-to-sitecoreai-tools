@@ -113,8 +113,15 @@ Use this package as a template only:
 The [Sitecore Habitat](https://github.com/Sitecore/Habitat/) reference site — a Sitecore Modular Architecture example running on version 9.2 — was migrated to SitecoreAI using this approach. Habitat is no longer maintained, making it a useful real-world baseline for demonstrating a low-effort, as-is migration. The video below shows the end result.
 
 <video controls width="960">
+	<source src="videos/Recording 2026-06-03 migration.mp4" type="video/mp4">
+	Your browser does not support the video tag.
+</video>
+
+[▶️ Watch the migration walkthrough (MP4)](videos/Recording%202026-06-03%20migration.mp4) — Click to download or stream the video directly.
+
+<video controls width="960">
 	<source src="videos/Recording%202026-06-03%20095213.mp4" type="video/mp4">
 	Your browser does not support the video tag.
 </video>
 
-[▶️ Watch the migration walkthrough (MP4)](videos/Recording%202026-06-03%20095213.mp4) — Click to download or stream the video directly.
+[▶️ Watch the migrated Habitat site in SitecoreAI (MP4)](videos/Recording%202026-06-03%20095213.mp4) — Click to download or stream the video directly.
