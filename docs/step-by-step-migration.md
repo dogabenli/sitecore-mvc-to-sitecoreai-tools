@@ -62,7 +62,7 @@ Run "Convert Items from MVC to Headless SXA" script. It automatically creates he
 
 ![Convert Items Wizard](images/8-a043b2d5-3f48-4ce5-a859-38ca51722fe6.png)
 
-![Convert Items Wizard](images/Recording%202026-06-03%20-%20Demo%20mini.mp4.gif)
+![Convert Items Wizard](images/Recording%202026-06-03-demo-mini.gif)
 
 ## Phase 5
 
