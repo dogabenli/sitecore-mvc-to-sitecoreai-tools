@@ -1760,7 +1760,7 @@ function Copy-Renderings {
                         }
 
                         $datasourceLocationValue = Get-ItemFieldFirstValue -item $datasourceSourceItem -fieldNames @("Datasource Location", "DatasourceLocation")
-                        $newItem["Datasource Location"] = "query:$site/*[@@name='Data']|query:$sharedSites/*[@@name='Data']"
+                        $newItem["Datasource Location"] = 'query:$site/*[@@name=''Data'']|query:$sharedSites/*[@@name=''Data'']'
 
                         $datasourceTemplateValue = Get-ItemFieldFirstValue -item $datasourceSourceItem -fieldNames @("Datasource Template", "DatasourceTemplate")
 
