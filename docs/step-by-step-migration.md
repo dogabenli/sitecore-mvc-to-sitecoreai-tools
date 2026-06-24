@@ -96,7 +96,11 @@ After migration is completed and the GraphQL response is as expected, then the s
 
 ## Phase 7
 
-You can build components using AI agents. The GraphQL layout service supplies page data. You have MVC references. Migration scripts generate a JSON reference listing all components, their data source fields, and rendering parameters.
+You can build components using AI agents. You have MVC references. The GraphQL layout service supplies page data. You can benefit from open source [GraphQL Layout Inspector](https://github.com/dogabenli/graphql-layout-inspector) marketplace app to get layout service JSON data directly inside Page Builder.
+![GraphQL Layout Inspector](images/graphql-layout-inspector-1.png)
+
+
+In addition to this, migration scripts generate a JSON reference listing all components, their data source fields, and rendering parameters.
 
 ### Optional: Example Custom Agent Package
 
