@@ -92,6 +92,8 @@ $placeholderKeyMigrationTemplateId = "{55281BC0-F06B-49E0-87D0-6B6594A261CA}"
 $placeholderKeySourceFieldId       = "{D53FA402-33E7-4219-9A24-2078FE173F62}"
 $placeholderKeyTargetFieldId       = "{DC84EA35-942E-4BFC-8DF4-F79E90AAF7D0}"
 $placeholderKeyFieldId             = "{F0251DE5-611B-4D82-9E74-E75D9C63A138}"
+$placeholderKeySourceUidFieldName = "Source UID"
+$placeholderKeyTargetUidFieldName = "Target UID"
 
 # NEW: Page Template Mapping constants
 $pageTemplateMappingRootPath   = "/sitecore/system/Settings/Migration/Mappings/Page Template Mappings"
@@ -167,6 +169,76 @@ function Resolve-ItemFromReferenceValue {
     return $null
 }
 
+function Get-NormalizedUidLookupKey {
+    param([string]$uidValue)
+
+    if ([string]::IsNullOrWhiteSpace($uidValue)) { return $null }
+
+    $trimmed = $uidValue.Trim()
+    $raw = ($trimmed -replace '[{}]', '').Trim()
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+
+    if ($raw -match '^[0-9A-Fa-f\-]{36}$') {
+        return $raw.ToUpperInvariant()
+    }
+
+    return $trimmed.ToUpperInvariant()
+}
+
+function Get-NormalizedUidValueForExpression {
+    param([string]$uidValue)
+
+    if ([string]::IsNullOrWhiteSpace($uidValue)) { return "" }
+
+    $trimmed = $uidValue.Trim()
+    $raw = ($trimmed -replace '[{}]', '').Trim()
+    if ($raw -match '^[0-9A-Fa-f\-]{36}$') {
+        return ("{{{0}}}" -f $raw.ToUpperInvariant())
+    }
+
+    return $trimmed
+}
+
+function Resolve-MappedUidValue {
+    param(
+        [string]$uidValue,
+        [hashtable]$uidMap
+    )
+
+    if (-not $uidMap -or $uidMap.Count -eq 0) { return $uidValue }
+
+    $lookupKey = Get-NormalizedUidLookupKey -uidValue $uidValue
+    if ([string]::IsNullOrWhiteSpace($lookupKey)) { return $uidValue }
+
+    if ($uidMap.ContainsKey($lookupKey)) {
+        return [string]$uidMap[$lookupKey]
+    }
+
+    return $uidValue
+}
+
+function Convert-UidExpressionReferences {
+    param(
+        [string]$value,
+        [hashtable]$uidMap
+    )
+
+    if ([string]::IsNullOrWhiteSpace($value)) { return $value }
+    if ($value -notmatch '(?i)[pr]\[@uid\s*=') { return $value }
+
+    $pattern = '(?<prefix>[pPrR])\[@uid\s*=\s*(?<quote>["''])(?<uid>[^"''\]]+)\k<quote>\]'
+    return [System.Text.RegularExpressions.Regex]::Replace($value, $pattern, {
+        param($m)
+
+        $quote = $m.Groups["quote"].Value
+        $sourceUid = $m.Groups["uid"].Value
+        $mappedUid = Resolve-MappedUidValue -uidValue $sourceUid -uidMap $uidMap
+        $targetPrefix = "r"
+
+        return ("{0}[@uid={1}{2}{1}]" -f $targetPrefix, $quote, $mappedUid)
+    })
+}
+
 # Datasource Template Map (derived from mapped rendering items)
 $datasourceTemplateMap = @{}
 foreach ($sourceRenderingId in $renderingMap.Keys) {
@@ -229,6 +301,7 @@ foreach ($map in $placeholderMappingItems) {
 $placeholderKeyMappingItems = Get-ChildItem -Path $placeholderMappingRootPath -Recurse | Where-Object {
     $_.TemplateID -eq $placeholderKeyMigrationTemplateId
 }
+$uidExpressionMap = @{}
 foreach ($map in $placeholderKeyMappingItems) {
     $sourceKey = $map.Fields[$placeholderKeyFieldId].Value
     $targetItemId = $map.Fields[$placeholderKeyTargetFieldId].Value
@@ -248,6 +321,13 @@ foreach ($map in $placeholderKeyMappingItems) {
     
     $placeholderMap[$sourceKey] = $targetKey
     Write-Host "📌 Placeholder key migration mapping added: $sourceKey → $targetKey"
+
+    $sourceUidKey = Get-NormalizedUidLookupKey -uidValue $map.Fields[$placeholderKeySourceUidFieldName].Value
+    $targetUidValue = Get-NormalizedUidValueForExpression -uidValue $map.Fields[$placeholderKeyTargetUidFieldName].Value
+    if (-not [string]::IsNullOrWhiteSpace($sourceUidKey) -and -not [string]::IsNullOrWhiteSpace($targetUidValue)) {
+        $uidExpressionMap[$sourceUidKey] = $targetUidValue
+        Write-Log -Detailed ("📌 UID expression mapping added: {0} -> {1}" -f $sourceUidKey, $targetUidValue)
+    }
 }
 
 # NEW: Page Template Map (source template ID → target template ID)
@@ -525,6 +605,32 @@ function Update-LayoutXmlFieldOnItem {
                 $old = $node.GetAttribute("id")
                 if ($renderingMap.ContainsKey($old)) {
                     $node.SetAttribute("id", $renderingMap[$old])
+                    $changed = $true
+                }
+            }
+        }
+
+        $nodesWithAttributes = $xmlDoc.SelectNodes('//*[@*]', $nsmgr)
+        foreach ($node in $nodesWithAttributes) {
+            $uidExpressionUpdatedOnNode = $false
+            foreach ($attr in $node.Attributes) {
+                $oldAttrValue = [string]$attr.Value
+                if ([string]::IsNullOrWhiteSpace($oldAttrValue) -or $oldAttrValue -notmatch '(?i)[pr]\[@uid\s*=') { continue }
+
+                $newAttrValue = Convert-UidExpressionReferences -value $oldAttrValue -uidMap $uidExpressionMap
+                if ($newAttrValue -ne $oldAttrValue) {
+                    $attr.Value = $newAttrValue
+                    $uidExpressionUpdatedOnNode = $true
+                    $changed = $true
+                }
+            }
+
+            if ($uidExpressionUpdatedOnNode) {
+                $pAfterAttr = $node.Attributes["p:after"]
+                $pBeforeAttr = $node.Attributes["p:before"]
+                if ($pAfterAttr -and -not $pBeforeAttr) {
+                    $node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
+                    $node.RemoveAttribute("after", $pAfterAttr.NamespaceURI)
                     $changed = $true
                 }
             }
@@ -1188,6 +1294,33 @@ foreach ($item in $copiedPageItemsByLanguage) {
                     }
                 }
             }
+            $nodesWithAttributes = $xmlDoc.SelectNodes('//*[@*]', $nsmgr)
+            foreach ($node in $nodesWithAttributes) {
+                $uidExpressionUpdatedOnNode = $false
+                foreach ($attr in $node.Attributes) {
+                    $oldAttrValue = [string]$attr.Value
+                    if ([string]::IsNullOrWhiteSpace($oldAttrValue) -or $oldAttrValue -notmatch '(?i)[pr]\[@uid\s*=') { continue }
+
+                    $newAttrValue = Convert-UidExpressionReferences -value $oldAttrValue -uidMap $uidExpressionMap
+                    if ($newAttrValue -ne $oldAttrValue) {
+                        $attr.Value = $newAttrValue
+                        Write-Log -Detailed ("🔁 UID expression updated in {0} [{1}] attr={2}: {3} -> {4}" -f $item.ItemPath, $fieldId, $attr.Name, $oldAttrValue, $newAttrValue)
+                        $uidExpressionUpdatedOnNode = $true
+                        $changed = $true
+                    }
+                }
+
+                if ($uidExpressionUpdatedOnNode) {
+                    $pAfterAttr = $node.Attributes["p:after"]
+                    $pBeforeAttr = $node.Attributes["p:before"]
+                    if ($pAfterAttr -and -not $pBeforeAttr) {
+                        $node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
+                        $node.RemoveAttribute("after", $pAfterAttr.NamespaceURI)
+                        Write-Log -Detailed ("🔁 Layout order attribute updated in {0} [{1}]: p:after -> p:before" -f $item.ItemPath, $fieldId)
+                        $changed = $true
+                    }
+                }
+            }
             # ...existing code for updating ds, ph, etc. (copy from above)...
             $dsNodes = $xmlDoc.SelectNodes('//*[@s:ds or @ds]', $nsmgr)
             foreach ($node in $dsNodes) {
@@ -1382,6 +1515,33 @@ foreach ($item in $copiedPageItemsByLanguage) {
                         $changed = $true
                     } else {
                         Write-DedupedWarning -Category "RenderingIdNotFound" -Key $old -Message "⚠️ id NOT FOUND in renderingMap: $old"
+                    }
+                }
+            }
+            $nodesWithAttributes = $xmlDoc.SelectNodes('//*[@*]', $nsmgr)
+            foreach ($node in $nodesWithAttributes) {
+                $uidExpressionUpdatedOnNode = $false
+                foreach ($attr in $node.Attributes) {
+                    $oldAttrValue = [string]$attr.Value
+                    if ([string]::IsNullOrWhiteSpace($oldAttrValue) -or $oldAttrValue -notmatch '(?i)[pr]\[@uid\s*=') { continue }
+
+                    $newAttrValue = Convert-UidExpressionReferences -value $oldAttrValue -uidMap $uidExpressionMap
+                    if ($newAttrValue -ne $oldAttrValue) {
+                        $attr.Value = $newAttrValue
+                        Write-Log -Detailed ("🔁 UID expression updated in {0} [{1}] attr={2}: {3} -> {4}" -f $item.ItemPath, $fieldId, $attr.Name, $oldAttrValue, $newAttrValue)
+                        $uidExpressionUpdatedOnNode = $true
+                        $changed = $true
+                    }
+                }
+
+                if ($uidExpressionUpdatedOnNode) {
+                    $pAfterAttr = $node.Attributes["p:after"]
+                    $pBeforeAttr = $node.Attributes["p:before"]
+                    if ($pAfterAttr -and -not $pBeforeAttr) {
+                        $node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
+                        $node.RemoveAttribute("after", $pAfterAttr.NamespaceURI)
+                        Write-Log -Detailed ("🔁 Layout order attribute updated in {0} [{1}]: p:after -> p:before" -f $item.ItemPath, $fieldId)
+                        $changed = $true
                     }
                 }
             }

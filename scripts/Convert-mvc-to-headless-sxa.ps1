@@ -45,6 +45,8 @@ $placeholderKeyMappingSourceFieldId = "{D53FA402-33E7-4219-9A24-2078FE173F62}"
 $placeholderKeyMappingTargetFieldId = "{DC84EA35-942E-4BFC-8DF4-F79E90AAF7D0}"
 $placeholderKeyMappingKeyFieldId = "{F0251DE5-611B-4D82-9E74-E75D9C63A138}"
 $placeholderKeyMappingKeyFieldName = "Key"
+$placeholderKeyMappingSourceUidFieldName = "Source UID"
+$placeholderKeyMappingTargetUidFieldName = "Target UID"
 
 $pageTemplateMappingRootPath = "/sitecore/system/Settings/Migration/Mappings/Page Template Mappings"
 $pageTemplateMappingTemplateId = "{5C9897BB-FDAC-418F-8044-4BB1FCCC41FB}"
@@ -2372,6 +2374,8 @@ function Ensure-PlaceholderKeyMappingItem {
         [string]$sourceId,
         [string]$targetId,
         [string]$keyValue,
+        [string]$sourceUid,
+        [string]$targetUid,
         [hashtable]$existingMap
     )
 
@@ -2381,6 +2385,15 @@ function Ensure-PlaceholderKeyMappingItem {
     if ([string]::IsNullOrWhiteSpace($keyValue)) { return $null }
 
     $keyTrimmed = $keyValue.Trim()
+    $sourceUidNorm = Convert-ToBracedGuidString -value $sourceUid
+    if ([string]::IsNullOrWhiteSpace($sourceUidNorm)) {
+        $sourceUidNorm = if ([string]::IsNullOrWhiteSpace($sourceUid)) { "" } else { $sourceUid.Trim() }
+    }
+    $targetUidNorm = Convert-ToBracedGuidString -value $targetUid
+    if ([string]::IsNullOrWhiteSpace($targetUidNorm)) {
+        $targetUidNorm = if ([string]::IsNullOrWhiteSpace($targetUid)) { "" } else { $targetUid.Trim() }
+    }
+
     $dedupeKey = ("{0}|{1}|{2}" -f $sourceNorm.ToLowerInvariant(), $targetNorm.ToLowerInvariant(), $keyTrimmed.ToLowerInvariant())
     if ($existingMap.ContainsKey($dedupeKey)) {
         return $null
@@ -2425,6 +2438,18 @@ function Ensure-PlaceholderKeyMappingItem {
         $placeholderKeyMappingKeyFieldName
     }
 
+    $resolvedSourceUidFieldName = if ($mappingItem.Fields[$placeholderKeyMappingSourceUidFieldName]) {
+        $placeholderKeyMappingSourceUidFieldName
+    } else {
+        $null
+    }
+
+    $resolvedTargetUidFieldName = if ($mappingItem.Fields[$placeholderKeyMappingTargetUidFieldName]) {
+        $placeholderKeyMappingTargetUidFieldName
+    } else {
+        $null
+    }
+
     if (-not $mappingItem.Fields[$resolvedSourceFieldName] -or -not $mappingItem.Fields[$resolvedTargetFieldName] -or -not $mappingItem.Fields[$resolvedKeyFieldName]) {
         throw ("Placeholder Key Mapping template is missing required fields on item '{0}'." -f $mappingItem.Paths.FullPath)
     }
@@ -2433,6 +2458,12 @@ function Ensure-PlaceholderKeyMappingItem {
         $mappingItem[$resolvedSourceFieldName] = $sourceNorm
         $mappingItem[$resolvedTargetFieldName] = $targetNorm
         $mappingItem[$resolvedKeyFieldName] = $keyTrimmed
+        if (-not [string]::IsNullOrWhiteSpace($resolvedSourceUidFieldName)) {
+            $mappingItem[$resolvedSourceUidFieldName] = $sourceUidNorm
+        }
+        if (-not [string]::IsNullOrWhiteSpace($resolvedTargetUidFieldName)) {
+            $mappingItem[$resolvedTargetUidFieldName] = $targetUidNorm
+        }
     } -OperationName ("Update placeholder-key mapping item '{0}'" -f $mappingItem.Paths.FullPath)
 
     $existingMap[$dedupeKey] = $mappingItem.ID.ToString()
@@ -2971,6 +3002,13 @@ try {
                     foreach ($pNode in $pNodes) {
                         $keyFromTag = Get-XmlAttributeValue -node $pNode -name "key"
                         $mdFromTag = Get-XmlAttributeValue -node $pNode -name "md"
+                        $sourceUidFromTag = Get-XmlAttributeValue -node $pNode -name "uid"
+                        $targetUidFromTag = ""
+
+                        $nextRenderingNode = $pNode.SelectSingleNode("following-sibling::*[local-name()='r' and @uid][1]")
+                        if ($nextRenderingNode) {
+                            $targetUidFromTag = Get-XmlAttributeValue -node $nextRenderingNode -name "uid"
+                        }
 
                         if (-not [string]::IsNullOrWhiteSpace($keyFromTag) -and -not [string]::IsNullOrWhiteSpace($mdFromTag)) {
                             $mappedPlaceholderTargetId = $null
@@ -2989,6 +3027,8 @@ try {
                                     -sourceId $mdFromTag `
                                     -targetId $mappedPlaceholderTargetId `
                                     -keyValue $keyFromTag `
+                                    -sourceUid $sourceUidFromTag `
+                                    -targetUid $targetUidFromTag `
                                     -existingMap $placeholderKeyMappingIndex
                                 if ($createdMapping) {
                                     $createdPlaceholderKeyMappings++
