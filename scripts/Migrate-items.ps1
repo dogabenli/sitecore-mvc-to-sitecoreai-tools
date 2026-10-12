@@ -343,6 +343,75 @@ foreach ($map in $pageTemplateMappingItems) {
 
 # --- Helpers -------------------------------------------------------------
 
+# Editing an item in a language without a version makes Sitecore create one, so always edit an existing version.
+function Get-ExistingVersionItem {
+    param([Sitecore.Data.Items.Item]$item)
+
+    if (-not $item) { return $null }
+    if ($item.Versions.Count -gt 0) { return $item }
+    return Get-Item -Path "master:" -ID $item.ID -Language * -Version "latest" -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
+function Set-ItemTemplateAcrossLanguages {
+    param(
+        [Sitecore.Data.Items.Item]$item,
+        [Sitecore.Data.Items.Item]$targetTemplateItem
+    )
+
+    $templateDef = [Sitecore.Data.Managers.TemplateManager]::GetTemplate($targetTemplateItem.ID, $item.Database)
+    if (-not $templateDef) {
+        Write-Warning "⚠️ Could not resolve TemplateManager object for $($targetTemplateItem.Paths.FullPath)"
+        return $false
+    }
+
+    # Capture same-named field values from every existing language version before the template switch.
+    $versions = @(Get-Item -Path "master:" -ID $item.ID -Language * -Version * -ErrorAction SilentlyContinue | Where-Object { $_ })
+    $valuesByVersion = @()
+    foreach ($v in $versions) {
+        $v.Fields.ReadAll()
+        $values = @{}
+        foreach ($f in $v.Fields) {
+            if ($f.Name -like '__*') { continue }
+            if ($templateDef.GetField($f.Name)) { $values[$f.Name] = $f.Value }
+        }
+        $valuesByVersion += [pscustomobject]@{ Language = $v.Language; Version = $v.Version; Values = $values }
+    }
+
+    $anchorItem = if ($versions.Count -gt 0) { $versions[0] } else { $item }
+    $tplRelPath = $targetTemplateItem.Paths.FullPath.Replace("/sitecore/templates/", "")
+    try {
+        # No -FieldsToCopy: SPE would edit only the anchor language; values are restored per version below.
+        Set-ItemTemplate -Item $anchorItem -Template $tplRelPath -ErrorAction Stop
+    } catch {
+        Write-Warning "❌ Set-ItemTemplate failed for $($item.ItemPath): $($_.Exception.Message)"
+        return $false
+    }
+
+    foreach ($entry in $valuesByVersion) {
+        if ($entry.Values.Count -eq 0) { continue }
+        $versionItem = $item.Database.GetItem($item.ID, $entry.Language, $entry.Version)
+        if (-not $versionItem -or $versionItem.Versions.Count -eq 0) { continue }
+
+        $pending = @{}
+        foreach ($fieldName in $entry.Values.Keys) {
+            $field = $versionItem.Fields[$fieldName]
+            if ($field -and $field.Value -ne $entry.Values[$fieldName]) { $pending[$fieldName] = $entry.Values[$fieldName] }
+        }
+        if ($pending.Count -eq 0) { continue }
+
+        try {
+            [void]$versionItem.Editing.BeginEdit()
+            foreach ($fieldName in $pending.Keys) { $versionItem.Fields[$fieldName].Value = $pending[$fieldName] }
+            [void]$versionItem.Editing.EndEdit()
+        } catch {
+            if ($versionItem.Editing.IsEditing) { [void]$versionItem.Editing.CancelEdit() }
+            Write-Warning "⚠️ Could not restore field values on $($item.ItemPath) [$($entry.Language)#$($entry.Version)]: $($_.Exception.Message)"
+        }
+    }
+
+    return $true
+}
+
 function Normalize-PlaceholderSegment {
     param(
         [string]$segment,
@@ -724,27 +793,8 @@ function Set-PageTemplateForItemIfMapped {
         return
     }
 
-    # Build FieldsToCopy map: non-standard fields that also exist on the target template
-    $item.Fields.ReadAll()
-    $srcFields = $item.Fields | Where-Object { $_.Name -notlike '__*' }
-
-    $tmpl = [Sitecore.Data.Managers.TemplateManager]::GetTemplate($targetTplItem.ID, $item.Database)
-    if (-not $tmpl) {
-        Write-Warning "⚠️ Could not resolve TemplateManager object for $($targetTplItem.Paths.FullPath)"
-        return
-    }
-
-    $fieldsToCopy = @{}
-    foreach ($f in $srcFields) {
-        if ($tmpl.GetField($f.Name)) { $fieldsToCopy[$f.Name] = $f.Name }
-    }
-
-    $tplRelPath = $targetTplItem.Paths.FullPath.Replace("/sitecore/templates/", "")
-    try {
-        Set-ItemTemplate -Path $item.ItemPath -Template $tplRelPath -FieldsToCopy $fieldsToCopy
-        Write-Log -Detailed "🧬 Template changed on $($item.ItemPath): $currentTemplateB → $targetTplId (copied $($fieldsToCopy.Count) field(s))"
-    } catch {
-        Write-Warning "❌ Set-ItemTemplate failed for $($item.ItemPath): $($_.Exception.Message)"
+    if (Set-ItemTemplateAcrossLanguages -item $item -targetTemplateItem $targetTplItem) {
+        Write-Log -Detailed "🧬 Template changed on $($item.ItemPath): $currentTemplateB → $targetTplId"
     }
 }
 
@@ -769,29 +819,11 @@ function Set-DatasourceTemplateForItemIfMapped {
         return $false
     }
 
-    $item.Fields.ReadAll()
-    $srcFields = $item.Fields | Where-Object { $_.Name -notlike '__*' }
-
-    $templateDef = [Sitecore.Data.Managers.TemplateManager]::GetTemplate($targetTemplateItem.ID, $item.Database)
-    if (-not $templateDef) {
-        Write-Warning "⚠️ Could not resolve TemplateManager object for $($targetTemplateItem.Paths.FullPath)"
-        return $false
-    }
-
-    $fieldsToCopy = @{}
-    foreach ($f in $srcFields) {
-        if ($templateDef.GetField($f.Name)) { $fieldsToCopy[$f.Name] = $f.Name }
-    }
-
-    $tplRelPath = $targetTemplateItem.Paths.FullPath.Replace("/sitecore/templates/", "")
-    try {
-        Set-ItemTemplate -Path $item.ItemPath -Template $tplRelPath -FieldsToCopy $fieldsToCopy
-        Write-Log -Detailed "🧬 Datasource template changed on $($item.ItemPath): $currentTemplateId → $targetTemplateId (copied $($fieldsToCopy.Count) field(s))"
+    if (Set-ItemTemplateAcrossLanguages -item $item -targetTemplateItem $targetTemplateItem) {
+        Write-Log -Detailed "🧬 Datasource template changed on $($item.ItemPath): $currentTemplateId → $targetTemplateId"
         return $true
-    } catch {
-        Write-Warning "❌ Failed to switch datasource template for $($item.ItemPath): $($_.Exception.Message)"
-        return $false
     }
+    return $false
 }
 
 function Get-HeadlessTemplateForSourceTemplate {
@@ -840,26 +872,11 @@ function Set-DatasourceTemplateForItemFromSourceItem {
     $targetTemplateId = $targetTemplateItem.ID.Guid.ToString("B").ToUpper()
     if ($currentTemplateId -eq $targetTemplateId) { return $false }
 
-    $copiedItem.Fields.ReadAll()
-    $srcFields = $copiedItem.Fields | Where-Object { $_.Name -notlike '__*' }
-
-    $templateDef = [Sitecore.Data.Managers.TemplateManager]::GetTemplate($targetTemplateItem.ID, $copiedItem.Database)
-    if (-not $templateDef) { return $false }
-
-    $fieldsToCopy = @{}
-    foreach ($f in $srcFields) {
-        if ($templateDef.GetField($f.Name)) { $fieldsToCopy[$f.Name] = $f.Name }
-    }
-
-    $tplRelPath = $targetTemplateItem.Paths.FullPath.Replace("/sitecore/templates/", "")
-    try {
-        Set-ItemTemplate -Path $copiedItem.ItemPath -Template $tplRelPath -FieldsToCopy $fieldsToCopy
-        Write-Log -Detailed "🧬 Datasource template changed (fallback) on $($copiedItem.ItemPath): $currentTemplateId → $targetTemplateId (copied $($fieldsToCopy.Count) field(s))"
+    if (Set-ItemTemplateAcrossLanguages -item $copiedItem -targetTemplateItem $targetTemplateItem) {
+        Write-Log -Detailed "🧬 Datasource template changed (fallback) on $($copiedItem.ItemPath): $currentTemplateId → $targetTemplateId"
         return $true
-    } catch {
-        Write-Warning "❌ Fallback datasource template switch failed for $($copiedItem.ItemPath): $($_.Exception.Message)"
-        return $false
     }
+    return $false
 }
 
 # ------------------------------------------------------------------------
@@ -934,7 +951,11 @@ if ($includeChildren) {
         if ($copiedMatch) {
             if ($copiedMatch.Name -ne "Data") {
                 try {
-                    Rename-Item -Path $copiedMatch.ItemPath -NewName "Data" -ErrorAction Stop
+                    $renameItem = Get-ExistingVersionItem -item $copiedMatch
+                    if (-not $renameItem) { $renameItem = $copiedMatch }
+                    [void]$renameItem.Editing.BeginEdit()
+                    $renameItem.Name = "Data"
+                    [void]$renameItem.Editing.EndEdit()
                     $copiedMatch = Get-Item -Path ($copiedMatch.Parent.Paths.FullPath + "/Data") -ErrorAction SilentlyContinue
                     if ($copiedMatch) {
                         Write-Log -Detailed "📝 Renamed copied datasource folder to Data: $($copiedMatch.Paths.FullPath)"
@@ -1027,18 +1048,18 @@ function Test-ItemHasFinalLayoutRenderings {
     }
 }
 
-$layoutBearingPageItems = @($copiedPageItems | Where-Object { Test-ItemHasFinalLayoutRenderings -item $_ })
-Write-Host ("ℹ️ Layout-bearing page items: {0}/{1}" -f $layoutBearingPageItems.Count, $copiedPageItems.Count)
-
-# Build a latest-version set per language only for pages that actually have renderings in final layout.
-$copiedPageItemsByLanguage = @($layoutBearingPageItems |
+# Check renderings per existing language version; the context-language item may have no version.
+$copiedPageItemsByLanguage = @($copiedPageItems |
     ForEach-Object {
-        $latestByLanguage = Get-Item -Path $_.ItemPath -Language * -Version "latest" -ErrorAction SilentlyContinue
+        $latestByLanguage = Get-Item -Path "master:" -ID $_.ID -Language * -Version "latest" -ErrorAction SilentlyContinue
         if ($latestByLanguage) { $latestByLanguage }
     } |
-    Where-Object { $_ -and $_.ID -and $_.Paths } |
+    Where-Object { $_ -and $_.ID -and $_.Paths -and (Test-ItemHasFinalLayoutRenderings -item $_) } |
     Group-Object { "{0}|{1}|{2}" -f $_.ID.Guid.ToString("B").ToUpper(), $_.Language.Name.ToLowerInvariant(), $_.Version.Number } |
     ForEach-Object { $_.Group[0] })
+
+$layoutBearingPageCount = @($copiedPageItemsByLanguage | Group-Object { $_.ID.Guid }).Count
+Write-Host ("ℹ️ Layout-bearing page items: {0}/{1}" -f $layoutBearingPageCount, $copiedPageItems.Count)
 
 Write-Host ("ℹ️ Language-specific layout processing items: {0}" -f $copiedPageItemsByLanguage.Count)
 
@@ -1090,7 +1111,8 @@ if (-not $pageDataTpl) {
 } else {
     foreach ($copiedFolder in $copiedDataFolders) {
         if (-not $copiedFolder) { continue }
-        $freshFolder = $db.GetItem($copiedFolder.ID)
+        $freshFolder = Get-ExistingVersionItem -item $db.GetItem($copiedFolder.ID)
+        if (-not $freshFolder) { $freshFolder = $db.GetItem($copiedFolder.ID) }
         if (-not $freshFolder) {
             Write-Warning "⚠️ Could not re-fetch copied data folder by ID $($copiedFolder.ID)"
             continue
@@ -1114,7 +1136,9 @@ if (-not $pageDataTpl) {
 # NEW: Clear __Tracking and __Security fields on all copied items to clean migration history
 Write-Host "🧹 Clearing __Tracking and __Security fields on migrated page items (excluding Data subtree)..."
 $clearSecuritySection = Start-SectionTimer -Name "Clear tracking/security fields"
-foreach ($copiedItem in $copiedPageItems) {
+foreach ($pageItem in $copiedPageItems) {
+    # __Tracking and __Security are shared, so editing one existing version is enough.
+    $copiedItem = Get-ExistingVersionItem -item $pageItem
     if ($copiedItem -and $copiedItem.ID) {
         try {
             [void]$copiedItem.Editing.BeginEdit()
@@ -1137,7 +1161,7 @@ $setItemTemplateSection = Start-SectionTimer -Name "Set-ItemTemplate remap"
 foreach ($ci in ($copiedPageItems |
     Group-Object { $_.ID.Guid.ToString("B").ToUpper() } |
     ForEach-Object { $_.Group[0] })) {
-    Set-PageTemplateForItemIfMapped -item $ci -ptMap $pageTemplateMap
+    [void](Set-PageTemplateForItemIfMapped -item $ci -ptMap $pageTemplateMap)
 }
 
 # Switch local datasource item templates using mappings derived from Phase 2 rendering datasource templates.
