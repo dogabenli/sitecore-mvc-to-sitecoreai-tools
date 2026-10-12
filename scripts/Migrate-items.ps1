@@ -352,6 +352,21 @@ function Get-ExistingVersionItem {
     return Get-Item -Path "master:" -ID $item.ID -Language * -Version "latest" -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 
+# SQL Server picks a victim when our writes collide with background work (indexing, link database, publishing).
+function Invoke-WithDeadlockRetry {
+    param([scriptblock]$Action, [int]$MaxAttempts = 3)
+
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            return & $Action
+        } catch {
+            if ($attempt -ge $MaxAttempts -or $_.Exception.ToString() -notmatch 'deadlock') { throw }
+            Write-Log -Detailed ("🔁 Deadlock detected, retrying ({0}/{1})..." -f $attempt, ($MaxAttempts - 1))
+            Start-Sleep -Milliseconds (500 * $attempt)
+        }
+    }
+}
+
 function Set-ItemTemplateAcrossLanguages {
     param(
         [Sitecore.Data.Items.Item]$item,
@@ -381,7 +396,7 @@ function Set-ItemTemplateAcrossLanguages {
     $tplRelPath = $targetTemplateItem.Paths.FullPath.Replace("/sitecore/templates/", "")
     try {
         # No -FieldsToCopy: SPE would edit only the anchor language; values are restored per version below.
-        Set-ItemTemplate -Item $anchorItem -Template $tplRelPath -ErrorAction Stop
+        Invoke-WithDeadlockRetry { Set-ItemTemplate -Item $anchorItem -Template $tplRelPath -ErrorAction Stop }
     } catch {
         Write-Warning "❌ Set-ItemTemplate failed for $($item.ItemPath): $($_.Exception.Message)"
         return $false
@@ -698,7 +713,7 @@ function Update-LayoutXmlFieldOnItem {
                 $pAfterAttr = $node.Attributes["p:after"]
                 $pBeforeAttr = $node.Attributes["p:before"]
                 if ($pAfterAttr -and -not $pBeforeAttr) {
-                    $node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
+                    [void]$node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
                     $node.RemoveAttribute("after", $pAfterAttr.NamespaceURI)
                     $changed = $true
                 }
@@ -1122,12 +1137,18 @@ if (-not $pageDataTpl) {
             continue
         }
         try {
-            [void]$freshFolder.Editing.BeginEdit()
-            [void]$freshFolder.ChangeTemplate($pageDataTpl)
-            [void]$freshFolder.Editing.EndEdit()
+            Invoke-WithDeadlockRetry {
+                [void]$freshFolder.Editing.BeginEdit()
+                try {
+                    [void]$freshFolder.ChangeTemplate($pageDataTpl)
+                    [void]$freshFolder.Editing.EndEdit()
+                } catch {
+                    if ($freshFolder.Editing.IsEditing) { [void]$freshFolder.Editing.CancelEdit() }
+                    throw
+                }
+            }
             Write-Log -Detailed "📄 Data folder template switched to Page Data on $($freshFolder.Paths.FullPath)"
         } catch {
-            $freshFolder.Editing.CancelEdit()
             Write-Warning "❌ Could not switch template on $($freshFolder.Paths.FullPath): $($_.Exception.Message)"
         }
     }
@@ -1338,7 +1359,7 @@ foreach ($item in $copiedPageItemsByLanguage) {
                     $pAfterAttr = $node.Attributes["p:after"]
                     $pBeforeAttr = $node.Attributes["p:before"]
                     if ($pAfterAttr -and -not $pBeforeAttr) {
-                        $node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
+                        [void]$node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
                         $node.RemoveAttribute("after", $pAfterAttr.NamespaceURI)
                         Write-Log -Detailed ("🔁 Layout order attribute updated in {0} [{1}]: p:after -> p:before" -f $item.ItemPath, $fieldId)
                         $changed = $true
@@ -1562,7 +1583,7 @@ foreach ($item in $copiedPageItemsByLanguage) {
                     $pAfterAttr = $node.Attributes["p:after"]
                     $pBeforeAttr = $node.Attributes["p:before"]
                     if ($pAfterAttr -and -not $pBeforeAttr) {
-                        $node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
+                        [void]$node.SetAttribute("before", $pAfterAttr.NamespaceURI, $pAfterAttr.Value)
                         $node.RemoveAttribute("after", $pAfterAttr.NamespaceURI)
                         Write-Log -Detailed ("🔁 Layout order attribute updated in {0} [{1}]: p:after -> p:before" -f $item.ItemPath, $fieldId)
                         $changed = $true
